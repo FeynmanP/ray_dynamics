@@ -69,4 +69,14 @@ class Quadropular1(BdryPolar):
         e = self.epsilon
         return (1 / (1 + e**2/2)**(1/2)) * (1 + e * np.cos(2 * theta))
 
+    
+class Quadropular2(BdryPolar):
+    def __init__(self, pars):
+        self.r0, self.epsilon = pars
+        super(Quadropular2, self).__init__()
+        
+    def r(self, theta):
+        return self.r0 * (1 - self.epsilon * np.cos(2 * theta))
+    
+    
 
