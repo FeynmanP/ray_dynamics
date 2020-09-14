@@ -19,12 +19,15 @@ def covert(x, y):
 
 
 class BdryPolar(object):
-    """Parentobject for those cavity whose boundary can be represent by a function in parlor coordination"""
+    """Parentobject for those cavity whose boundary can be represent by a function in parlor coordination."""
     def __init__(self):
         self.compute_bdry_data()
 
     def r(self, theta):
-        """The only place should changed in different cavity"""
+        """
+        Dedine your own boundary equation.
+        The only place should be changed in different cavity.
+        """
         return 1
 
     def if_bdry(self, x, y):
