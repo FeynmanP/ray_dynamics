@@ -6,458 +6,340 @@ Boundary of cavity should be defined here.
 For the cavities which do not have continuous boundary,
 """
 import numpy as np
+import matplotlib.pyplot as plt
+from numpy import pi, sin, cos, arctan2, tan
 from scipy.misc import derivative
-import scipy.integrate as integrate
-import inspect
-import sys
-import absorber
+from scipy.integrate import quad
+from scipy.optimize import brentq
 
 
-def covert(x, y):
-    r = np.sqrt(x ** 2 + y ** 2)
-    phi = np.arctan2(y, x)
-    return r, phi
+
+def order_boundary_points_counterclockwise(boundary_points):
+    """Order the points of boundary from 0 to 2pi"""
+    # Compute the centroid of the boundary points
+    centroid = np.mean(boundary_points, axis=0)
+
+    # Compute the angles between each boundary point and the centroid
+    angles = np.arctan2(boundary_points[:, 1] - centroid[1], boundary_points[:, 0] - centroid[0])
+
+    # Adjust the angles to be in the range [0, 2pi]
+    angles = (angles + 2*pi) % (2*pi)
+    # Sort the boundary points based on these angles
+    sorted_indices = np.argsort(angles)
+    ordered_boundary_points = boundary_points[sorted_indices]
+
+    return ordered_boundary_points
 
 
-e_x = np.array([1, 0])
-e_y = np.array([0, 1])
-
-
-def test():
-    pass
-
-
-class BdryPolar:
-    """
-    Parentclass for all the cavities whose boundary can be well-defined in polar coordinate
-    """
-
-    def __init__(self):
-        self.bdry_data = []
-        try:
-            self.compute_bdry_data()
-        except TypeError:
-            print('Program can not be excuted.\nCheck the parameters and the type of cavity')
-            exit()
-
-    def bdry(self, phi):
-        """ Different with different cavities"""
-        return 1
+class BoundaryUniformPolar:
+    """A general class for the cavity with uniform distribution of refractive index. Use Circle for instance"""
+    def __init__(self, cavity_params):
+        """
+        Initialization.
+        """
+        self._set_cavity_params(cavity_params)
+        self._generate_bdry_data()
 
     def __str__(self):
-        """Define cavity name"""
-        return 'Cavity name'
+        return "CirclePolar"
 
-    def is_inside(self, x, y):
-        r, phi = covert(x, y)
-        return r < self.bdry(phi)
+    def _set_cavity_params(self, cavity_params):
+        radius = cavity_params
+        self.R = radius
 
-    def dr_dphi(self, phi):
-        return derivative(self.bdry, phi, 10e-6)
+    def _generate_bdry_data(self):
+        values_phi = np.linspace(0, 2 * pi, 2048)
+        values_x = [self.r_phi(phi) * cos(phi) for phi in values_phi]
+        values_y = [self.r_phi(phi) * sin(phi) for phi in values_phi]
+        values_pos_bdry = np.column_stack((values_x, values_y))
+        self.bdry_data = values_pos_bdry
 
-    def normal_vector_bdry(self, x, y):
-        """
-        :return: normalized normal vector on boundary.
-        """
-        r, phi = covert(x, y)
-        dr_dphi = derivative(self.bdry, phi, 10e-6)
-
-        e_r = np.array([np.cos(phi), np.sin(phi)])
-        e_phi = np.array([-np.sin(phi), np.cos(phi)])
-
-        normal_vector = -self.bdry(phi) * e_r + dr_dphi * e_phi
-
-        return normal_vector / np.linalg.norm(normal_vector)
-
-    def compute_bdry_data(self):
-        for phi in np.linspace(-np.pi, np.pi, 10000):
-            r = self.bdry(phi)
-            self.bdry_data.append([r * np.cos(phi), r * np.sin(phi)])
-
-    def leak(self, phi, theta):
-        return 1
-
-    def is_tailor(self, x, y):
-        return 0
-'''
-    def convert_phi_s(self, end, start=-np.pi):
-        """0 < phi <= 2*pi"""
-        length = integrate.quad(lambda x: np.sqrt(self.dr_dphi(x)**2 + self.bdry(x)**2), -np.pi, np.pi)
-        result = integrate.quad(lambda x: np.sqrt(self.dr_dphi(x)**2 + self.bdry(x)**2), start, end)
-
-        frac = result[0] / length[0]
-        return frac
-
-    def convert_s_phi(self, s):
-        return s
-'''
-
-class CircleXY:
-
-    def __init__(self, pars):
-        self.R = pars
-
-    def is_inside(self, x, y):
-        return x**2 + y**2 <= self.R**2
-
-    def normal_vector_bdry(self, x, y):
-        if x > 0 and y > 0:
-            return self.quater_oval_norm_vector(x, y)
-        elif x < 0 and y > 0:
-            return self.quater_oval_norm_vector(-x, y)
-
-    def quater_oval_norm_vector(self, x, y):
-        pass
-
-
-class Circle(BdryPolar):
-    def __init__(self, pars):
-        self.R = pars
-        super(Circle, self).__init__()
-
-    def bdry(self, phi):
+    def r_phi(self, phi):
+        """Definition of the cavity shape in polar coordinates."""
         return self.R
 
-    def __str__(self):
-        return 'Circle'
+    def is_inside(self, x, y):
+        phi = arctan2(y, x)
+        phi = (phi + 2*pi) % (2*pi)
+        r = self.r_phi(phi)
+        return (x**2 + y**2) < r**2
+
+    # def perimeter(self):
+    #     """Perimeter of the cavity."""
+    #     return 2 * pi * self.R
+
+    def perimeter(self):
+        return self.compute_arc_length(2*pi)
+
+    def dr_dphi(self, phi):
+        # Calculate the derivative of r with respect to phi
+        return derivative(self.r_phi, phi, dx=1e-6)
+
+    def integrand(self, phi):
+        # Calculate the integrand of the arc length formula
+        r = self.r_phi(phi)
+        dr_phi = self.dr_dphi(phi)
+        return np.sqrt(r ** 2 + dr_phi ** 2)
+
+    def compute_arc_length(self, phi1):
+        # Compute the arc length from phi = 0 to phi = phi1
+        arc_length, _ = quad(self.integrand, 0, phi1)
+        return arc_length
+
+    def arc_length_to_phi(self, s, phi_guess=2 * np.pi):
+        # Function to find the difference between the computed arc length and the given s
+        def func(phi):
+            return quad(self.integrand, 0, phi)[0] - s
+
+        # Use a root-finding algorithm to solve for phi
+        phi_solution = brentq(func, 0, phi_guess)
+        return phi_solution
+
+    def convert_xy_to_s(self, x, y):
+        """Convert the point (x, y) on the boundary to the fraction s (from 0 to 1)"""
+        phi = arctan2(y, x)
+        phi = (phi + 2 * pi) % (2 * pi)
+        s = self.compute_arc_length(phi) / self.perimeter()
+        return s
+
+    def convert_s_to_xy(self, s):
+        """Convert s to the point (x, y) on the boundary"""
+        arc_length = s * self.perimeter()
+
+        phi = self.arc_length_to_phi(arc_length)
+
+        x, y = self.r_phi(phi) * cos(phi), self.r_phi(phi) * sin(phi)
+
+        return x, y
 
 
-class Ellipse(BdryPolar):
-    def __init__(self, pars):
-        self.e, self.epsilon = pars
-        super(Ellipse, self).__init__()
+    def compute_norm_tang(self, x, y):
+        """ Compute the outward normal vector and CCW-direction tangent vector on given point (x, y) on the boundary."""
+        phi = arctan2(y, x)
+        phi = (phi + 2*pi) % (2*pi)
+        # Compute dr/dphi using SciPy's derivative
+        dr_dphi = derivative(self.r_phi, phi, dx=1e-6)
 
-    def __str__(self):
-        return 'Ellipse'
+        # Compute components of the tangent vector
+        T_x = dr_dphi * np.cos(phi) - self.r_phi(phi) * np.sin(phi)
+        T_y = dr_dphi * np.sin(phi) + self.r_phi(phi) * np.cos(phi)
 
-    def bdry(self, phi):
-        return self.epsilon / (1 - self.e * np.cos(phi))
+        # Normalize the tangent vector
+        T_norm = np.sqrt(T_x ** 2 + T_y ** 2)
+        T_x /= T_norm
+        T_y /= T_norm
 
+        # Compute the outward normal vector by rotating the tangent vector 90 degrees
+        N_x = T_y
+        N_y = -T_x
 
-class Quadropular1(BdryPolar):
-    def __init__(self, epsilon):
-        self.epsilon = epsilon
-        super(Quadropular1, self).__init__()
+        norm = np.array([N_x, N_y])
+        tang = np.array([T_x, T_y])
 
-    def __str__(self):
-        return 'Quadropular1'
-
-    def bdry(self, phi):
-        e = self.epsilon
-        return (1 / (1 + e ** 2 / 2) ** (1 / 2)) * (1 + e * np.cos(2 * phi))
-
-
-class Quadropular2(BdryPolar):
-    def __init__(self, pars):
-        (self.r0, self.epsilon) = pars
-        super(Quadropular2, self).__init__()
-
-    def __str__(self):
-        return 'Quadropular2'
-
-    def bdry(self, phi):
-        return self.r0 * (1 - self.epsilon * np.cos(2 * phi))
+        return norm, tang
 
 
-class FlattenedQuadropule(BdryPolar):
-    def __init__(self, pars):
-        (self.r0, self.epsilon) = pars
-        super(FlattenedQuadropule, self).__init__()
-
-    def __str__(self):
-        return 'FlattenedQuadropule'
-
-    def bdry(self, phi):
-        return self.r0 * np.sqrt(1 + 2 * self.epsilon * np.cos(2 * phi))
-
-
-class Bdry1(BdryPolar):
-    """from "Ray chaos and Q-spoiling in lasing droplet" """
-
-    def __init__(self, epsilon):
-        self.epsilon = epsilon
-        super(Bdry1, self).__init__()
-
-    def bdry(self, phi):
-        return 1 + self.epsilon * ((np.cos(phi)) ** 2 + 1.5 * (np.cos(phi)) ** 4)
-
-
-class D(BdryPolar):
-    def __init__(self, pars):
-        self.d, self.r = pars
-        self.theta = np.arccos(self.d / self.r)
-        self.length_line = 2 * np.sqrt(self.r ** 2 - self.d ** 2)
-        self.length = self.r * (2*np.pi - 2 * self.theta) + self.length_line
-        self.frac1 = 1/2 * self.length_line / self.length
-        self.frac2 = 1/2
-        self.frac3 = 1 - self.frac1
-        super(D, self).__init__()
-
-    def bdry(self, phi):
-        theta = np.arccos(self.d/self.r)
-        if -theta < phi < theta:
-            return self.d / np.cos(phi)
-        else:
-            return self.r
-
-    def convert_phi_s(self, phi):
-        theta = np.arccos(self.d / self.r)
-        length_line = 2 * np.sqrt(self.r**2 - self.d**2)
-        length = self.r * (2*np.pi - 2*theta) + length_line
-        if 0 <= phi < theta:
-            return (self.d * np.abs(np.tan(phi))) / length
-        elif -theta < phi < 0:
-            return 1 - (self.d * np.abs(np.tan(phi))) / length
-        elif phi >= theta:
-            return ((phi - theta) * self.r + 1/2 * length_line) / length
-        else:
-            return ((2 * np.pi + phi - theta) * self.r + 1/2 * length_line) / length
-
-    def convert_s_phi(self, s):
-        theta = np.arccos(self.d / self.r)
-        length_line = 2 * np.sqrt(self.r ** 2 - self.d ** 2)
-        length = self.r * (2*np.pi - 2 * theta) + length_line
-        frac1 = 1/2 * length_line / length
-        frac2 = 1/2
-        frac3 = 1 - frac1
-        if s < frac1:
-            return np.arctan(length * s / self.d)
-        elif frac1 <= s < frac2:
-            return (s * length - 1/2 * length_line) / self.r + theta
-        elif frac2 <= s < frac3:
-            return (s * length - 1/2 * length_line) / self.r + theta - 2 * np.pi
-        else:
-            return - np.arctan((1 - s) * length / self.d)
-
-    def full_leak(self, phi, theta):
-        ds = 0.5
-        d_phi = np.arctan(ds / self.d)
-        if 0 < phi < d_phi:
-            return 0
-        else:
-            return 1
-
-    def partial_leak_TM(self, phi, theta):
-        n = 3.3
-        theta2 = np.arcsin(n * np.sin(theta))
-        if np.sin(theta) <= 1/n:
-            relectivity = (np.sin(theta - theta2) / np.sin(theta + theta2)) ** 2
-            return relectivity
-        else:
-            return 1
-
-    def leak(self, phi, theta):
-        return self.partial_leak_TM(phi, theta)
-
-    def boundary_vector(self, s):
-        """
-        :param phi: angle in porlar coordinate:
-        :param s: fraction of the arc length from 0
-        :return: clockwise boundary vectors
-        """
-        phi = self.convert_s_phi(s)
-
-        if s < self.frac1:
-            return np.array([0, 1])
-        elif self.frac3 >= s >= self.frac1:
-            return np.array([-np.sin(phi), np.cos(phi)])
-        else:
-            return np.array([0,1])
-
-    def is_tailor_v1(self, x, y):
-        #  Tailer area to adujest the phase space, mainly effects the 3-period orbits in D-shapled cavity.
-        #  v1.0 can only build a square absorber whose lines are parallel to x and y-axis.
-        xmin = -0.83
-        xmax = -0.63
-        ymin = -0.01
-        ymax = 0.01
-        x_area = [xmin, xmax]
-        y_area = [ymin, ymax]
-        # x_area = [-1, 0]
-        # y_area = [-0.4, 0.4]
-        if x_area[0] <= x <= x_area[1] and y_area[0] <= y <= y_area[1]:
-            return 1
-        else:
-            return 0
-
-    def is_tailor(self, x, y):
-        self.is_tailor_v1(x, y)
-
-
-    def __str__(self):
-        return 'D-shape'
-
-
-class Oval(BdryPolar):
-    def __init__(self, pars):
-        self.r0, self.epsilon1, self.epsilon2, self.epsilon3, self.epsilon4 = pars
-        super(Oval, self).__init__()
-
-    def bdry(self, phi):
-        r0 = self.r0
-        e1, e2, e3, e4 = self.epsilon1, self.epsilon2, self.epsilon3, self.epsilon4
-        r = r0 * (1 + e1 * np.cos(2*phi) + e2 * np.cos(4*phi) + e3 * np.cos(6*phi) + e4 * np.cos(8*phi))
-        return r
-
-    def __str__(self):
-        return 'Oval'
-
-
-class BoundaryXY:
-    def __init__(self):
-        self.bdry_data = []
-        try:
-            self.compute_bdry_data()
-        except TypeError:
-            print('Program can not be excuted.\nCheck the parameters and the type of cavity')
-            exit()
-
-    def bdry(self, phi):
-        """ Different with different cavities"""
+    def leak(self, n_in, theta, mode='TM'):
+        # leak on the boundary, return R for reflection.
         return 1
 
-    def __str__(self):
-        """Define cavity name"""
-        return 'Cavity name'
 
-    def is_inside(self, x, y):
-        r, phi = covert(x, y)
-        return r < self.bdry(phi)
+# Uncomplished definition of stadium-shaped cavity. (convert_s_to_xy(self, s)) 
+# class StadiumPolar(BoundaryUniformPolar):
+#     def __init__(self, cavity_params):
+#         super().__init__(cavity_params)
 
-    def normal_vector_bdry(self, x, y):
-        """
-        :return: normalized normal vector on boundary.
-        """
-        return -1
+#     def _set_cavity_params(self, cavity_params):
+#         self.R = self.d = cavity_params
 
-    def compute_bdry_data(self):
-        for phi in np.linspace(-np.pi, np.pi, 10000):
-            r = self.bdry(phi)
-            self.bdry_data.append([r * np.cos(phi), r * np.sin(phi)])
+#     def __str__(self):
+#         return 'StadiumPolar'
 
+#     def r_phi(self, phi):
 
-class Stadium(BdryPolar):
-    """This cavity is defined in x-y cooridnates"""
-    def __init__(self, r):
-        self.R = r
-        super(Stadium, self).__init__()
+#         if 1/4 * pi < phi <= 3/4 * pi or 5/4 * pi <= phi <= 7/4 * pi:
+#             return np.abs(self.R / np.sin(phi))
+#         else:
+#             return np.abs(2 * self.R * np.cos(phi))
 
-    def bdry(self, phi):
-        if -1/4 * np.pi < phi <= 1/4 * np.pi:
-            return 2 * self.R * np.cos(phi)
-        elif 1/4 * np.pi < phi <= 1/2 * np.pi:
-            return self.R / np.sin(phi)
-        elif 1/2 * np.pi < phi <= 3/4 * np.pi:
-            return self.R / np.sin(phi)
-        elif phi > 3/4 * np.pi:
-            return -2 * self.R * np.cos(phi)
-        elif phi <= -3/4 * np.pi:
-            return -2 * self.R * np.cos(phi)
-        elif - 3/4 * np.pi < phi <= -1/2 * np.pi:
-            return -self.R / np.sin(phi)
-        elif - 1/2 * np.pi < phi <= -1/4 * np.pi:
-            return -self.R / np.sin(phi)
-        else:
-            return -2 * self.R * np.cos(phi)
+#     def compute_norm_tang(self, x, y):
+#         """
+#         :return: normalized normal vector on boundary.
+#         """
+#         phi = (arctan2(y, x) + 2*pi) % (2 * pi)
+#         if 0 <= phi <= 1 / 4 * np.pi:
+#             normal_vector = [np.cos(2*phi), np.sin(2*phi)]
+#         elif 1 / 4 * np.pi < phi <= 3 / 4 * np.pi:
+#             normal_vector = [0, 1]
+#         elif 3 / 4 * np.pi < phi < 5 / 4 * np.pi:
+#             normal_vector = [-np.cos(2*(phi-pi)), -np.sin(2*(phi-pi))]
+#         elif 5 / 4 * np.pi <= phi <= 7 / 4 * np.pi:
+#             normal_vector = (0, -1)
+#         else:
+#             normal_vector = (np.cos(2 * phi), np.sin(2 * phi))
 
+#         return np.array(normal_vector), np.array((-normal_vector[1], normal_vector[0]))
 
-class Lemon(BdryPolar):
-    def __init__(self, l):
-        self.L = l
-        super(Lemon, self).__init__()
+#     def convert_xy_to_s(self, x, y):
+#         quarter_perimeter = 1/2 * pi * self.R + self.d
+#         perimeter = 4 * quarter_perimeter
+#         phi = (arctan2(y, x) + 2*pi) % (2*pi)
+#         if phi <= pi/2:
+#             if phi <= pi/4:
+#                 s = (self.R * 2 * phi) / perimeter
+#             else:
+#                 s = (quarter_perimeter - x) / perimeter
 
-    def bdry(self, phi):
-        if 0 < phi < 1/2 * np.pi:
-            a = 1 + np.tan(phi)**2
-            b = 2 * (1 - self.L / 2)
-            c = (1 - self.L/2) ** 2 - 1
-            value1 = (-b + np.sqrt(b**2 - 4*a*c)) / (2*a)
-            x = value1
-        elif phi == 1/2 * np.pi or phi == -1/2 * np.pi:
-            return self.L - self.L**2 / 4
-        else:
-            a = 1 + np.tan(phi) ** 2
-            b = - 2 * (1 - self.L / 2)
-            c = self.L * (self.L/4 - 1)
-            value1 = (-b - np.sqrt(b ** 2 - 4 * a * c)) / (2 * a)
-            x = value1
-        return np.sqrt((1 + np.tan(phi)**2) * x**2)
+#         elif pi/2 < phi <= pi:
+#             if phi < 3/4 * pi:
+#                 s = (quarter_perimeter - x) / perimeter
+#             else:
+#                 s = (2 * quarter_perimeter - self.R * 2 * (pi - phi)) / perimeter
 
+#         elif pi < phi <= 3*pi/2:
+#             if phi < 5/4 * pi:
+#                 s = (2 * quarter_perimeter + self.R * 2 * (phi - pi)) / perimeter
+#             else:
+#                 s = (3 * quarter_perimeter + x) / perimeter
 
-class Cardioid(BdryPolar):
-    def __init__(self, pars):
-        self.r0 = pars
-        super(Cardioid, self).__init__()
+#         else:
+#             if phi < 7/4 * pi:
+#                 s = (3 * quarter_perimeter + x) / perimeter
+#             else:
+#                 s = (4 * quarter_perimeter - self.R * 2 * (2*pi - phi)) / perimeter
+#         return s
 
-    def __str__(self):
-        return 'FlattenedQuadropule'
-
-    def bdry(self, phi):
-        return self.r0 * np.sqrt(1 + np.cos(phi))
+#     def convert_s_to_xy(self, s):
+#         if s == 0:
+#             return self.R + self.d, 0
+#         if s == 3/4:
+#             return 0, -self.R
 
 
-class Mushroom(BdryPolar):
-    def __init__(self, pars):
-        """a < R and l, R > 0.1"""
-        self.R, self.l, self.a = pars
-        super(Mushroom, self).__init__()
+class DshapePolar(BoundaryUniformPolar):
+    def __init__(self, cavity_params):
+        super().__init__(cavity_params)
 
     def __str__(self):
-        return 'Mushroom'
+        return "D-shapePolar"
 
-    def bdry(self, phi):
-        d = 0.5
-        R = self.R
-        l = self.l
-        a = self.a
+    def _set_cavity_params(self, cavity_params):
+        self.r, self.d = cavity_params
 
-        phi1 = np.arctan2(-d, R-d)
-        phi2 = np.arctan2(R-d, -d)
-        phi3 = np.arctan2(-d-l, -d)
-        phi4 = np.arctan2(-d-l, a-d)
-        phi5 = np.arctan2(-d, a-d)
-
-        if phi1 < phi <= phi2:
-            return np.sqrt(R**2 - d**2 * (1 - 2 * np.cos(phi) * np.sin(phi))) - d * (np.cos(phi) + np.sin(phi))
-        elif phi > phi2 or phi <= phi3:
-            return np.abs(d / np.cos(phi))
-        elif phi3 < phi <= phi4:
-            return np.abs((l + d) / np.sin(phi))
-        elif phi4 < phi <= phi5:
-            return np.abs((a - d) / np.cos(phi))
+    def r_phi(self, phi):
+        # Range of phi is from 0 to 2pi
+        phi_0 = np.arccos(self.d/self.r)
+        if phi_0 < phi < (2*pi - phi_0):
+            return self.r
         else:
-            return np.abs(d / np.sin(phi))
+            return self.d / np.cos(phi)
+
+    def compute_norm_tang(self, x, y):
+        phi_0 = np.arccos(self.d/self.r)
+        phi = (arctan2(y, x) + 2*pi) % (2*pi)
+        if phi_0 <= phi <= (2*pi - phi_0):
+            normal_vector = np.array([cos(phi), sin(phi)])
+        else:
+            normal_vector = np.array([1, 0])
+        return normal_vector, np.array([-normal_vector[1], normal_vector[0]])
+
+    def convert_xy_to_s(self, x, y):
+        phi_0 = np.arccos(self.d/self.r)
+        half_line = self.r * sin(phi_0)
+        perimeter = 2 * half_line + (2*pi - 2*phi_0) * self.r
+        phi = (arctan2(y, x) + 2 * pi) % (2 * pi)
+
+        if phi < phi_0:
+            s = self.d * tan(phi) / perimeter
+        elif phi_0 <= phi <= (2*pi - phi_0):
+            s = (half_line + self.r * (phi - phi_0)) / perimeter
+        else:
+            s = 1 - (self.d * np.abs(tan(2*pi - phi))) / perimeter
+
+        return s
+
+    def convert_s_to_xy(self, s):
+        phi_0 = np.arccos(self.d / self.r)
+        half_line = self.r * sin(phi_0)
+        perimeter = 2 * half_line + (2 * pi - 2 * phi_0) * self.r
+        s_half_line = half_line / perimeter
+
+        if s < s_half_line:
+            phi = arctan2(s * perimeter, self.d)
+        elif s_half_line <= s <= (1-s_half_line):
+            phi = (s * perimeter - half_line) / self.r + phi_0
+        else:
+            phi = 2*pi - arctan2((1-s) * perimeter, self.d)
+
+        r = self.r_phi(phi)
+        return r*cos(phi), r*sin(phi)
 
 
-def test():
-    s = Mushroom((10, 10, 5))
-    print(s.bdry(0))
-    print(s.bdry(1/4 * np.pi))
-    print(s.bdry(2/4 * np.pi))
-    print(s.bdry(3/4 * np.pi))
-    print(s.bdry(4/4 * np.pi))
-    print(s.bdry(-1/4 * np.pi))
-    print(s.bdry(-2/4 * np.pi))
-    print(s.bdry(-3/4 * np.pi))
-    print(s.bdry(-4/4 * np.pi))
+class DshapePolarAnalytic(BoundaryUniformPolar):
+    def __init__(self, cavity_params):
+        super().__init__(cavity_params)
+
+    def __str__(self):
+        return "D-shapePolar"
+
+    def _set_cavity_params(self, cavity_params):
+        self.r, self.d = cavity_params
+
+    def r_phi(self, phi):
+        # Range of phi is from 0 to 2pi
+        phi_0 = np.arccos(self.d/self.r)
+        if phi_0 < phi < (2*pi - phi_0):
+            return self.r
+        else:
+            return self.d / np.cos(phi)
 
 
-def test2():
-    c = D((5, 10))
-    # for i in np.linspace(0, np.pi, 10):
-    #    print(c.convert_phi_s(i))
-    for s in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]:
-        print((c.convert_s_phi(s)/(2*np.pi)) * 360, c.boundary_vector(s))
+class Limacon(BoundaryUniformPolar):
+    def __init__(self, cavity_params):
+        super().__init__(cavity_params)
+
+    def _set_cavity_params(self, cavity_params):
+        self.R, self.epsilon = cavity_params
+
+    def r_phi(self, phi):
+        return self.R * (1 + 2 * self.epsilon * cos(phi))
 
 
-def print_classes():
-    clsmembers = inspect.getmembers(sys.modules[__name__], inspect.isclass)
-    return [i[0] for i in clsmembers]
+
+def test_is_inside():
+    bdryTest = BoundaryUniformPolar((1))
+    print(bdryTest.perimeter())
+    print(bdryTest.perimeter() - 2*pi)
+    plt.plot(bdryTest.bdry_data[:, 0], bdryTest.bdry_data[:, 1])
+    for x in np.linspace(0, 2.5, 101):
+        for y in np.linspace(-2, 2, 101):
+            if bdryTest.is_inside(x, y):
+                plt.plot(x, y, '.', c='green')
+            else:
+                plt.plot(x, y, '*', c='red')
+    plt.axis('equal')
+
+    plt.show()
+
+
+def test_tang_nrom():
+    bdryTest = DshapePolarAnalytic((1, 0.5))
+    plt.plot(bdryTest.bdry_data[:, 0], bdryTest.bdry_data[:, 1])
+
+    for point in bdryTest.bdry_data[::10]:
+        print(point)
+        norm, tang = bdryTest.compute_norm_tang(point[0], point[1])
+        # plt.plot([point[0], point[0] + norm[0]], [point[1], point[1] + norm[1]])
+        plt.plot([point[0], point[0] + tang[0]], [point[1], point[1] + tang[1]])
+
+    plt.axis('scaled')
+    plt.show()
+
 
 
 if __name__ == '__main__':
-    test2()
-
+    # test_is_inside()
+    test_tang_nrom()
 
 
 
