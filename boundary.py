@@ -305,14 +305,35 @@ class Limacon(BoundaryUniformPolar):
         return self.R * (1 + 2 * self.epsilon * cos(phi))
 
 
+class StadiumHalf(BoundaryUniformPolar):
+    def __init__(self, cavity_params):
+        super().__init__(cavity_params)
+
+    def __str__(self):
+        return "StadiumHalf"
+
+    def _set_cavity_params(self, cavity_params):
+        self.r, self.d = cavity_params
+
+    def r_phi(self, phi):
+        # Range of phi is from 0 to 2pi
+        phi_0 = np.arctan(self.r / self.d)
+        if phi < phi_0 or phi > (2*pi - phi_0):
+            return np.abs(self.d / np.cos(phi))
+        elif pi/2 < phi < 3*pi/2:
+            return self.r
+        else:
+            return np.abs(self.r / np.sin(phi))
+
+
 
 def test_is_inside():
-    bdryTest = BoundaryUniformPolar((1))
+    bdryTest = StadiumHalf((1, 7))
     print(bdryTest.perimeter())
-    print(bdryTest.perimeter() - 2*pi)
+    # print(bdryTest.perimeter())
     plt.plot(bdryTest.bdry_data[:, 0], bdryTest.bdry_data[:, 1])
-    for x in np.linspace(0, 2.5, 101):
-        for y in np.linspace(-2, 2, 101):
+    for x in np.linspace(-2, 10, 201):
+        for y in np.linspace(-2, 2, 201):
             if bdryTest.is_inside(x, y):
                 plt.plot(x, y, '.', c='green')
             else:
@@ -323,13 +344,13 @@ def test_is_inside():
 
 
 def test_tang_nrom():
-    bdryTest = DshapePolarAnalytic((1, 0.5))
+    bdryTest = StadiumHalf((1, 7))
     plt.plot(bdryTest.bdry_data[:, 0], bdryTest.bdry_data[:, 1])
 
     for point in bdryTest.bdry_data[::10]:
         print(point)
         norm, tang = bdryTest.compute_norm_tang(point[0], point[1])
-        # plt.plot([point[0], point[0] + norm[0]], [point[1], point[1] + norm[1]])
+        plt.plot([point[0], point[0] + norm[0]], [point[1], point[1] + norm[1]])
         plt.plot([point[0], point[0] + tang[0]], [point[1], point[1] + tang[1]])
 
     plt.axis('scaled')

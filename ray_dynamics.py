@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import bisect
 from numpy import cos, sin
-import boundary_uniform
+import boundary
 
 
 class RayDynamicsUniform:
@@ -190,11 +190,13 @@ class RayDynamicsUniform:
 
 
 def test():
-    cavity_params = (1, 0.2)
-    boundaryTest = boundary.Limacon(cavity_params)
+    cavity_params = (1, 0.5)
+    # boundaryTest = boundary.DshapePolarAnalytic(cavity_params)
+    boundaryTest = boundary.StadiumHalf((1, 7))
 
-    ray_test = RayDynamicsUniform(boundaryTest, step_length=2, n_step=1000,
-                                  init_condition=(7.87864636e-02, 2.94958630e-01))
+    ray_test = RayDynamicsUniform(boundaryTest, step_length=2, n_step=200,
+                                  init_condition=(0.46, -0.8))
+
 
     time_start = time.time()
     ray_test.motion()
@@ -203,7 +205,7 @@ def test():
     phase_info_all = np.array(ray_test.phase_info)
     x = phase_info_all[:, 2]
     y = phase_info_all[:, 3]
-    plt.plot(x, y, c='red', linewidth=0.5)
+    plt.plot(x, y, c='red', linewidth=0.8)
     print(phase_info_all)
 
     plt.plot(ray_test.bdry_data[:, 0], ray_test.bdry_data[:, 1], 'black', linewidth=1)
